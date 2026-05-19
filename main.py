@@ -1,75 +1,96 @@
-from game import TicTacToe
-from stats import save_game_result
 import os
+import time
+import argparse
+from PIL import Image
+from multiprocessing import Pool
+import random
 
-def clear_screen():
-    os.system('cls' if os.name == 'nt' else 'clear')
+INPUT_DIR = "input_images"
+OUTPUT_DIR = "processed"
+OUT_PREFIX = "out_"
+TARGET_SIZE = (800, 600)
+NUM_IMAGES = 10
 
-def get_int_input(prompt, min_val, max_val):
-    while True:
-        try:
-            value = int(input(prompt))
-            if min_val <= value <= max_val:
-                return value
-            print(f"Пожайлуста введите число в диапазоне от {min_val} до {max_val}")
-        except ValueError:
-            print("Ошибка. Введите число.")
+def generate_test_images(num=NUM_IMAGES):
+    """Генерирует случайные JPG-изображения в папку INPUT_DIR."""
+    os.makedirs(INPUT_DIR, exist_ok=True)
+    existing = len([f for f in os.listdir(INPUT_DIR) if f.endswith(".jpg")])
+    if existing >= num:
+        print(f"Найдено {existing} изображений. Генерация не требуется.")
+        return
+    print(f"Генерация {num} тестовых изображений...")
+    for i in range(num):
+        width = random.randint(300, 2000)
+        height = random.randint(300, 2000)
+        img = Image.new("RGB", (width, height))
+        pixels = img.load()
+        for x in range(width):
+            for y in range(height):
+                pixels[x, y] = (random.randint(0, 255),
+                                random.randint(0, 255),
+                                random.randint(0, 255))
+        img.save(os.path.join(INPUT_DIR, f"img_{i}.jpg"))
+    print("Генерация завершена.")
 
-def print_board(board):
-    size = len(board)
-    for i in range(size):
-        print(" | ".join(board[i]))
-        if i < size - 1:
-            print("-" * (size * 4 - 3))
+def process_image(img_info):
+    """Принимает (input_path, output_path) и выполняет обработку."""
+    input_path, output_path = img_info
+    try:
+        with Image.open(input_path) as img:
+            img = img.transpose(Image.ROTATE_90)
+            img = img.resize(TARGET_SIZE, Image.Resampling.LANCZOS)
+            img = img.convert("L")
+            img.save(output_path, "JPEG")
+        return True
+    except Exception as e:
+        print(f"Ошибка при обработке {input_path}: {e}")
+        return False
+
+def sequential_processing(image_files):
+    """Последовательная обработка."""
+    start_time = time.time()
+    for input_path, output_path in image_files:
+        process_image((input_path, output_path))
+    elapsed = time.time() - start_time
+    return elapsed
+
+def parallel_processing(image_files, num_workers=None):
+    """Параллельная обработка с использованием multiprocessing.Pool."""
+    start_time = time.time()
+    with Pool(processes=num_workers) as pool:
+        pool.map(process_image, image_files)
+    elapsed = time.time() - start_time
+    return elapsed
 
 def main():
-    while True:
-        clear_screen()
-        print("Игра Крестики-Нолики")
-        
-        board_size = get_int_input("Введите размер игрового поля (3-10): ", 3, 10)
-        
-        print("\nВыберите режим игры:")
-        print("1. Игрок против Игрока")
-        print("2. Игрок против Компьютера")
-        mode = get_int_input("Введите число (1-2): ", 1, 2)
-        
-        game = TicTacToe(board_size)
-        game.random_first_player()
-        game.game_mode = "PvP" if mode == 1 else "PvE"
-        
-        while True:
-            clear_screen()
-            print(f"Ход игрока: {game.current_player}")
-            print_board(game.board)
-            
-            if game.game_mode == "PvE" and game.current_player == 'O':
-                row, col = game.bot_move()
-                print(f"\nХод компьютера: ({row}, {col})")
-            else:
-                row = get_int_input(f"\nИгрок {game.current_player} выберите ряд (0-{board_size-1}): ", 0, board_size-1)
-                col = get_int_input(f"Игрок {game.current_player} выберите колонку (0-{board_size-1}): ", 0, board_size-1)
-            
-            if game.make_move(row, col):
-                if game.check_winner():
-                    clear_screen()
-                    print_board(game.board)
-                    print(f"\nИгрок {game.current_player} победил!")
-                    save_game_result(board_size, game.current_player, game.move_history, game.game_mode)
-                    break
-                elif game.is_draw():
-                    clear_screen()
-                    print_board(game.board)
-                    print("\nНичья")
-                    save_game_result(board_size, "Draw", game.move_history, game.game_mode)
-                    break
-                game.switch_player()
-            else:
-                print("Недопустимый ход. Попробуйте снова.")
-        
-        play_again = input("\nИграть снова? (д/н): ").lower()
-        if play_again != 'д':
-            break
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", choices=["sequential", "parallel"], required=True,
+                        help="Режим обработки: sequential или parallel")
+    args = parser.parse_args()
+
+    generate_test_images()
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    image_files = []
+    for filename in sorted(os.listdir(INPUT_DIR)):
+        if filename.lower().endswith(".jpg"):
+            input_path = os.path.join(INPUT_DIR, filename)
+            out_name = OUT_PREFIX + filename
+            output_path = os.path.join(OUTPUT_DIR, out_name)
+            image_files.append((input_path, output_path))
+
+    if not image_files:
+        print("Нет изображений для обработки.")
+        return
+
+    print(f"Найдено {len(image_files)} изображений.")
+
+    if args.mode == "sequential":
+        elapsed = sequential_processing(image_files)
+        print(f"Последовательная обработка: {elapsed:.4f} секунд")
+    else:
+        elapsed = parallel_processing(image_files)
+        print(f"Параллельная обработка (multiprocessing.Pool): {elapsed:.4f} секунд")
 
 if __name__ == "__main__":
     main()
