@@ -1,8 +1,8 @@
 from PIL import Image
 import os
 
-input_folder = "raw_images"  # Папка с исходниками
-output_folder = "dataset"    # Папка для Label Studio
+input_folder = "proverka_raw_images"  # Папка с исходниками
+output_folder = "proverka_dataset"    # Папка для Label Studio
 target_size = (640, 640)     # Единый размер (YOLO любит 640x640)
 
 os.makedirs(output_folder, exist_ok=True)
